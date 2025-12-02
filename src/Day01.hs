@@ -10,9 +10,9 @@ main =
       res <-
         case (example, whichPart) of
           (True, 1) -> return $ part1 exLines
-          (False, 1) -> fmap (part1 . lines) (readFile "../data/01.input.txt")
+          (False, 1) -> fmap (part1 . lines) (readFile "./data/01.input.txt")
           (True, 2) -> return $ part2 exLines
-          (False, 2) -> fmap (part2 . lines) (readFile "../data/01.input.txt")
+          (False, 2) -> fmap (part2 . lines) (readFile "./data/01.input.txt")
       print $ res
 
 type Rotation = Either Int Int
