@@ -1,5 +1,11 @@
+import Data.List (sort, find, sortOn)
+import Data.Tuple (swap)
+import Data.Maybe (fromJust, isNothing)
+import Data.Ord (Down(Down), getDown)
+import qualified Data.Bifunctor as Bifunctor
+import System.IO.Unsafe (unsafePerformIO)
 
-whichPart = 1
+whichPart = 2
 example = False
 
 main =
@@ -54,4 +60,46 @@ digitJoltage = read . pairToList
 pairToList :: (a, a) -> [a]
 pairToList (a, b) = [a, b]
 
-part2 = undefined
+part2 = sum . map (finalize . pick 12 . prepare)
+
+prepare :: (Ord a) => Bank a -> [(a, Int)]
+prepare bank =
+  let
+    -- 1. sort by value then by index
+    sorted = sortOn Down renumbered
+    -- 2. renumber the indices to say how many are left after that
+    totLen = length bank
+    renumbered = map (Bifunctor.second (\pos -> totLen - pos - 1)) $ map swap $ zipWithIndex bank
+  in
+    sorted
+
+pick :: (Show a) => Int -> [(a, Int)] -> [(a, Int)]
+pick 0 _ = []
+pick n xs =
+  let
+    goodEnough (_, remAfter) = remAfter >= n - 1
+    currPick = fromJust $ debug isNothing (n, xs) $ find goodEnough xs
+    willRemAfter = snd currPick
+    rem = filter (\(_, remAfter) -> remAfter < willRemAfter) xs
+  in
+    currPick : (pick (n-1) rem)
+
+debug :: (Show b) => (a -> Bool) -> b -> a -> a
+debug predicate toPrint value =
+  if predicate value then
+    unsafePerformIO $ do
+                        print toPrint
+                        return value
+  else
+    value
+
+finalize :: [(Digit, Int)] -> Int
+finalize = read . map fst . sortOn (Down . snd)
+
+zipWithIndex :: [a] -> [(Int, a)]
+zipWithIndex =
+  let
+    zwi _ [] = []
+    zwi n (x:xs) = (n, x) : (zwi (n+1) xs)
+  in
+    zwi 0
