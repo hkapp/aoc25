@@ -1,6 +1,6 @@
 import Data.Bifunctor (Bifunctor, bimap)
 
-whichPart = 1
+whichPart = 2
 example = False
 
 main =
@@ -11,8 +11,8 @@ main =
       else
         readFile "./data/05.input.txt"
     let process = case whichPart of
-                    1 -> part1
-                    --2 -> part2
+                    --1 -> part1
+                    2 -> part2
     let res = process $ parse textInput
     print $ res
 
@@ -56,3 +56,28 @@ rangeContains (l, r) i = (i >= l) && (i <= r)
 
 anyRangeContains :: [Range] -> Id -> Bool
 anyRangeContains ranges id = any ((flip rangeContains) id) ranges
+
+part2 :: ([Range], [Id]) -> Int
+part2 = sum . map rangeLen . foldr mergeInto [] . fst
+
+mergeInto :: Range -> [Range] -> [Range]
+
+mergeInto x (y:ys) =
+  if overlap x y then
+    mergeInto (merge x y) ys
+  else
+    y : (mergeInto x ys)
+
+mergeInto x [] = [x]
+
+overlap :: Range -> Range -> Bool
+overlap x y = not $ disjoint x y
+
+disjoint :: Range -> Range -> Bool
+disjoint (l1, r1) (l2, r2) = (l2 > r1) || (r2 < l1)
+
+merge :: Range -> Range -> Range
+merge (l1, r1) (l2, r2) = ((min l1 l2), (max r1 r2))
+
+rangeLen :: Range -> Int
+rangeLen (l, r) = r - l + 1
