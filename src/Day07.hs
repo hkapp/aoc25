@@ -2,8 +2,11 @@ import Data.List (find)
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Control.Monad.State (State, get, put, evalState)
+import Data.Map (Map)
+import qualified Data.Map as Map
 
-process = part1
+process = part2
 example = False
 
 main =
@@ -75,3 +78,36 @@ splitAndCount splitters beams =
     newBeams = applySplitters splitters beams
   in
     (splitCount, newBeams)
+
+part2 (startPos, world) = evalState (countCached startPos world) Map.empty
+
+type Level = Int
+
+type Cache = Map (Pos, Level) Int
+
+countCached :: Pos -> [Splitters] -> State Cache Int
+
+countCached _ [] = return 1
+
+countCached pos splitters =
+  do
+    cache <- get
+    let level = length splitters
+    case Map.lookup (pos, level) cache of
+      Just count -> return count
+      Nothing ->
+        do
+          put cache
+          let newDims = splitOne (head splitters) pos
+          subCounts <- sequence $ map (\newPos -> countCached newPos (tail splitters)) newDims
+          let totDimCount = sum subCounts
+          newCache <- get
+          put $ Map.insert (pos, level) totDimCount newCache
+          return totDimCount
+
+splitOne :: Splitters -> Pos -> [Pos]
+splitOne splitters pos =
+  if Set.member pos splitters then
+    [pos - 1, pos + 1]
+  else
+    [pos]
