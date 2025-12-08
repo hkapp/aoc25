@@ -4,7 +4,7 @@ import qualified Data.Set as Set
 import Control.Monad.State (State, get, put, runState, evalState)
 import Data.Ord (Down(Down))
 
-process = part1
+process = part2
 example = False
 
 main =
@@ -22,6 +22,7 @@ type Point = [Int]
 parse :: String -> [Point]
 parse = map read . map (\s -> "[" ++ s ++ "]") . lines
 
+part1 :: [Point] -> Int
 part1 points =
   let
     sortedPairs = sortOn (uncurry distance) $ allPairs points
@@ -81,3 +82,21 @@ connect prevConns (x, y) =
     (yCircuit:[], remaining) = partition (Set.member y) xRem
   in
     (Set.union xCircuit yCircuit) : remaining
+
+part2 points =
+  let
+    sortedPairs = sortOn (uncurry distance) $ allPairs points
+    initialConns = map Set.singleton points
+    (x:xs, y:ys) = evalState repeatUntilDone (sortedPairs, initialConns)
+  in
+    x * y
+
+repeatUntilDone :: State (SortedPairs, Connections) Pair
+repeatUntilDone =
+  do
+    (picked, connected) <- pickAndConnect
+    (_, currConns) <- get
+    if connected && length currConns == 1 then
+      return picked
+    else
+      repeatUntilDone
