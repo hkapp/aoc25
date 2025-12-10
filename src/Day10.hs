@@ -128,9 +128,9 @@ configureJolts :: Machine -> [Button]
 configureJolts (_, buttons, joltList) =
   let
     targetJolts = Map.fromList $ zipWithIndex joltList
-    initLights = fmap (const 0) targetJolts
-    initSeq = (initLights, [])
-    bfsStart = bfs2 buttons
+    initJolts = fmap (const 0) targetJolts
+    initSeq = (initJolts, [])
+    bfsStart = bfs2 buttons targetJolts
     genLevels = evalState bfsStart ([initSeq], Set.empty)
     searchResult = concat $ genLevels
   in
@@ -139,14 +139,19 @@ configureJolts (_, buttons, joltList) =
 type Jolts = Map Int Int
 type JoltSeq = (Jolts, [Button])
 
-bfsExpand2 :: [Button] -> JoltSeq -> State (Set Jolts) [JoltSeq]
-bfsExpand2 machineButtons currPath =
+bfsExpand2 :: [Button] -> Jolts -> JoltSeq -> State (Set Jolts) [JoltSeq]
+bfsExpand2 machineButtons targetJolts currPath =
   do
     modify $ Set.insert (joltsFrom currPath)
     visited <- get
     let nextSeqs = map (extendJolt currPath) machineButtons
     let unvisitedNext = filter (\s -> Set.notMember (joltsFrom s) visited) nextSeqs
-    return unvisitedNext
+    let candidates = filter (\s -> not $ overshot targetJolts (joltsFrom s)) unvisitedNext
+    return candidates
+
+overshot :: Jolts -> Jolts -> Bool
+overshot targetJolts currJolts =
+  any id $ Map.elems $ Map.intersectionWith (\tgt j -> j > tgt) targetJolts currJolts
 
 joltsFrom :: JoltSeq -> Jolts
 joltsFrom = fst
@@ -158,14 +163,14 @@ extendJolt (currJolts, buttonPresses) pushedButton =
 pushJolt :: Button -> Jolts -> Jolts
 pushJolt bs js = foldr (Map.adjust ((+) 1)) js bs
 
-bfsLevel2 :: [Button] -> State ([JoltSeq], Set Jolts) [JoltSeq]
-bfsLevel2 availableButtons =
+bfsLevel2 :: [Button] -> Jolts -> State ([JoltSeq], Set Jolts) [JoltSeq]
+bfsLevel2 availableButtons targetJolts =
   do
     (currLevelStart, visited) <- get
-    let willExpand = fmap concat $ traverse (bfsExpand2 availableButtons) currLevelStart
+    let willExpand = fmap concat $ traverse (bfsExpand2 availableButtons targetJolts) currLevelStart
     let (nextLevel, newVisited) = runState willExpand visited
     put (nextLevel, newVisited)
     return nextLevel
 
-bfs2 :: [Button] -> State ([JoltSeq], Set Jolts) [[JoltSeq]]
-bfs2 availableButtons = sequence $ repeat (bfsLevel2 availableButtons)
+bfs2 :: [Button] -> Jolts -> State ([JoltSeq], Set Jolts) [[JoltSeq]]
+bfs2 availableButtons targetJolts = sequence $ repeat (bfsLevel2 availableButtons targetJolts)
