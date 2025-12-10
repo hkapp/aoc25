@@ -1,0 +1,123 @@
+import Data.Bifunctor (second)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Control.Monad.State (State, evalState, get, modify, put, runState)
+import Data.List (find)
+import Data.Maybe (fromJust)
+
+process = part1
+example = False
+
+main =
+  do
+    textInput <-
+      if example then
+        readFile "./data/10.example.txt"
+      else
+        readFile "./data/10.input.txt"
+    let res = process $ parse textInput
+    print $ res
+
+parse :: String -> [Machine]
+parse = map parseMachine . lines
+
+type Machine = (Lights, [Button], [Int])
+
+parseMachine :: String -> Machine
+parseMachine input =
+  let
+    (lights, rem) = splitOnFirst ((==) ' ') input
+    (buttonsWS, partialJoltage) = splitOnFirst ((==) '{') rem
+    buttons = dropLast 1 buttonsWS
+    joltage = '{' : partialJoltage
+  in
+    (parseLights lights, parseButtons buttons, parseJoltage joltage)
+
+type LightId = Int
+type LightState = Bool
+type Lights = Map LightId LightState
+
+parseLights :: String -> Lights
+parseLights = Map.fromList . zipWithIndex . map parseLightState . dropLast 1 . drop 1
+
+parseLightState :: Char -> Bool
+parseLightState '.' = False
+parseLightState '#' = True
+
+zipWithIndex :: [a] -> [(Int, a)]
+zipWithIndex = zip (integers 0)
+
+integers :: Int -> [Int]
+integers n = n : (integers (n+1))
+
+type Button = [LightId]
+
+parseButtons :: String -> [Button]
+parseButtons = read . surround '[' ']' . replace ' ' ',' . replace ')' ']' . replace '(' '['
+
+surround :: a -> a -> [a] -> [a]
+surround before after xs = before : (xs ++ [after])
+
+parseJoltage :: String -> [Int]
+parseJoltage = read . replace '}' ']' . replace '{' '['
+
+replace :: (Eq a, Functor f) => a -> a -> f a -> f a
+replace old new = fmap (\x -> if x == old then new else x)
+
+splitOnFirst :: (a -> Bool) -> [a] -> ([a], [a])
+splitOnFirst p = second tail . span (not . p)
+
+dropLast :: Int -> [a] -> [a]
+dropLast n = reverse . drop n . reverse
+
+part1 :: [Machine] -> Int
+part1 = sum . map (length . configure)
+
+pushButton :: Button -> Lights -> Lights
+pushButton bConns initLights = foldr toggle initLights bConns
+
+toggle :: LightId -> Lights -> Lights
+toggle = Map.adjust not
+
+configure :: Machine -> [Button]
+configure (targetLights, buttons, _) =
+  let
+    initLights = fmap (const False) targetLights
+    initSeq = (initLights, [])
+    bfsStart = bfs buttons
+    genLevels = evalState bfsStart ([initSeq], Set.empty)
+    searchResult = concat $ genLevels
+  in
+    snd $ fromJust $ find (\s -> targetLights == lightsFrom s) searchResult
+
+type PushSeq = (Lights, [Button])
+
+bfsExpand :: [Button] -> PushSeq -> State (Set Lights) [PushSeq]
+bfsExpand machineButtons currPath =
+  do
+    modify $ Set.insert (lightsFrom currPath)
+    visited <- get
+    let nextSeqs = map (extendSeq currPath) machineButtons
+    let unvisitedNext = filter (\s -> Set.notMember (lightsFrom s) visited) nextSeqs
+    return unvisitedNext
+
+lightsFrom :: PushSeq -> Lights
+lightsFrom = fst
+
+extendSeq :: PushSeq -> Button -> PushSeq
+extendSeq (currLights, buttonPresses) pushedButton =
+  (pushButton pushedButton currLights, pushedButton:buttonPresses)
+
+bfsLevel :: [Button] -> State ([PushSeq], Set Lights) [PushSeq]
+bfsLevel availableButtons =
+  do
+    (currLevelStart, visited) <- get
+    let willExpand = fmap concat $ traverse (bfsExpand availableButtons) currLevelStart
+    let (nextLevel, newVisited) = runState willExpand visited
+    put (nextLevel, newVisited)
+    return nextLevel
+
+bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
+bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
