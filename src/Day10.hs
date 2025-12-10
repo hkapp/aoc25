@@ -7,8 +7,8 @@ import Control.Monad.State (State, evalState, get, modify, put, runState)
 import Data.List (find)
 import Data.Maybe (fromJust)
 
-process = part1
-example = False
+process = part2
+example = True
 
 main =
   do
@@ -121,3 +121,51 @@ bfsLevel availableButtons =
 
 bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
+
+part2 = map (length . configureJolts)
+
+configureJolts :: Machine -> [Button]
+configureJolts (_, buttons, joltList) =
+  let
+    targetJolts = Map.fromList $ zipWithIndex joltList
+    initLights = fmap (const 0) targetJolts
+    initSeq = (initLights, [])
+    bfsStart = bfs2 buttons
+    genLevels = evalState bfsStart ([initSeq], Set.empty)
+    searchResult = concat $ genLevels
+  in
+    snd $ fromJust $ find (\s -> targetJolts == joltsFrom s) searchResult
+
+type Jolts = Map Int Int
+type JoltSeq = (Jolts, [Button])
+
+bfsExpand2 :: [Button] -> JoltSeq -> State (Set Jolts) [JoltSeq]
+bfsExpand2 machineButtons currPath =
+  do
+    modify $ Set.insert (joltsFrom currPath)
+    visited <- get
+    let nextSeqs = map (extendJolt currPath) machineButtons
+    let unvisitedNext = filter (\s -> Set.notMember (joltsFrom s) visited) nextSeqs
+    return unvisitedNext
+
+joltsFrom :: JoltSeq -> Jolts
+joltsFrom = fst
+
+extendJolt :: JoltSeq -> Button -> JoltSeq
+extendJolt (currJolts, buttonPresses) pushedButton =
+  (pushJolt pushedButton currJolts, pushedButton:buttonPresses)
+
+pushJolt :: Button -> Jolts -> Jolts
+pushJolt bs js = foldr (Map.adjust ((+) 1)) js bs
+
+bfsLevel2 :: [Button] -> State ([JoltSeq], Set Jolts) [JoltSeq]
+bfsLevel2 availableButtons =
+  do
+    (currLevelStart, visited) <- get
+    let willExpand = fmap concat $ traverse (bfsExpand2 availableButtons) currLevelStart
+    let (nextLevel, newVisited) = runState willExpand visited
+    put (nextLevel, newVisited)
+    return nextLevel
+
+bfs2 :: [Button] -> State ([JoltSeq], Set Jolts) [[JoltSeq]]
+bfs2 availableButtons = sequence $ repeat (bfsLevel2 availableButtons)
