@@ -124,18 +124,20 @@ bfsLevel availableButtons =
 bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
-part2 = map configureJolts . take 20
+part2 = map configureJolts . take 5
 
 configureJolts (_, buttons, joltList) =
   let
     targetJolts = Map.fromList $ zipWithIndex joltList
-    initJolts = fmap (const 0) targetJolts
+    {-initJolts = fmap (const 0) targetJolts
     sortedJolts = sortOn snd $ zipWithIndex joltList
     sortedJoltIds = map fst sortedJolts
     dpRun = configureAllJolts buttons targetJolts
-    dpRes = evalState dpRun Map.empty
+    dpRes = evalState dpRun Map.empty-}
+    sortedButtons = sortOn (Down . length) buttons
+    dfs = sequence $ repeat dfsExpand
   in
-    fromJust dpRes
+    snd $ fromJust $ find (done . fst) $ evalState dfs [(targetJolts, 0, sortedButtons)]
 
 configureAllJolts :: [Button] -> Jolts -> State (Map Jolts (Maybe Int)) (Maybe Int)
 
@@ -339,3 +341,28 @@ pushJoltRev js bs = foldr (Map.adjust (\j -> j - 1)) js bs
 
 overshot2 :: Jolts -> Bool
 overshot2 js = any (\j -> j < 0) $ Map.elems js
+
+dfsExpand :: State [(Jolts, Int, [Button])] (Jolts, Int)
+dfsExpand =
+  do
+    stack <- get
+    let (picked:remStack) = stack
+    let (currJolts, pressCount, availableButtons) = picked
+
+    -- Either we press the next button
+    let ifPressedJolts = pushJoltRev currJolts (head availableButtons)
+    let ifPressed = if validJolts ifPressedJolts
+                      then [(ifPressedJolts, pressCount + 1, availableButtons)]
+                      else []
+
+    -- Or we don't
+    let ifNotPressed = if length availableButtons > 1
+                        then [(currJolts, pressCount, tail availableButtons)]
+                        else []
+
+    let newStack = ifPressed ++ ifNotPressed ++ remStack
+    put newStack
+    return (currJolts, pressCount)
+
+validJolts :: Jolts -> Bool
+validJolts = all (\j -> j >= 0) . Map.elems
