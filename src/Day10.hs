@@ -4,10 +4,12 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.State (State, evalState, get, modify, put, runState)
-import Data.List (find, sortOn)
-import Data.Maybe (fromJust, catMaybes, isJust)
+import Data.List (find, sortOn, partition, groupBy)
+import Data.Maybe (fromJust, catMaybes, isJust, mapMaybe)
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Ord (Down(Down))
+import Control.Exception (assert)
+import Data.Tuple (swap)
 
 process = part2
 example = False
@@ -124,7 +126,8 @@ bfsLevel availableButtons =
 bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
-part2 = map configureJolts . take 5
+--part2 = sum . map configureJolts
+part2 = map configureJolts . take 24
 
 configureJolts (_, buttons, joltList) =
   let
@@ -137,7 +140,8 @@ configureJolts (_, buttons, joltList) =
     sortedButtons = sortOn (Down . length) buttons
     dfs = sequence $ repeat dfsExpand
   in
-    snd $ fromJust $ find (done . fst) $ evalState dfs [(targetJolts, 0, sortedButtons)]
+    --snd $ fromJust $ find (done . fst) $ evalState dfs [(targetJolts, 0, sortedButtons)]
+    minimum $ map (sum . Map.elems) $ solve $ toEq (undefined, buttons, joltList)
 
 configureAllJolts :: [Button] -> Jolts -> State (Map Jolts (Maybe Int)) (Maybe Int)
 
@@ -366,3 +370,97 @@ dfsExpand =
 
 validJolts :: Jolts -> Bool
 validJolts = all (\j -> j >= 0) . Map.elems
+
+type Equation = ([EqRow], Binds)
+type EqRow = ([Variable], Value)
+type Binds = Map Variable Value
+type Value = Int
+type Variable = LightId
+
+deduce :: Equation -> Maybe Equation
+deduce eq =
+  let
+    (eqRows, binds) = eq
+    deducedBinding = safeHead $ mapMaybe deduceRow eqRows
+  in
+    if not $ feasible eq
+      then Nothing
+      else
+        case deducedBinding of
+          Just bnd -> deduce =<< applyBind eq bnd
+          Nothing -> Just eq
+
+feasible :: Equation -> Bool
+feasible (eqRows, _) = all isNonNeg $ map snd eqRows
+
+isNeg :: Int -> Bool
+isNeg n = n < 0
+
+isNonNeg :: Int -> Bool
+isNonNeg = not . isNeg
+
+deduceRow :: EqRow -> Maybe (Variable, Value)
+deduceRow (x:[], y) = Just (x, y)
+deduceRow _ = Nothing
+
+applyBind :: Equation -> (Variable, Value) -> Maybe Equation
+applyBind (currRows, currBinds) (bndVar, bndValue) =
+  let
+    newBinds = assert (Map.notMember bndVar currBinds) (Map.insert bndVar bndValue currBinds)
+    bindRow (rowVars, rowValue) =
+      case partition ((==) bndVar) rowVars of
+        ([], unaffected) -> (unaffected, rowValue)
+        (x:[], remVars) -> (remVars, rowValue - bndValue)
+
+    rmEmpty ([], 0) = Nothing
+    --rmEmpty ([], n) = error $ "Invalid bind apply"
+    rmEmpty row = Just row
+
+    newRows = mapMaybe rmEmpty $ map bindRow currRows
+  in
+    if any (null . fst) newRows
+      then Nothing
+      else Just (newRows, newBinds)
+
+safeHead :: [a] -> Maybe a
+safeHead (x:xs) = Just x
+safeHead [] = Nothing
+
+solve :: Equation -> [Binds]
+solve eq =
+  let
+    (currRows, currBinds) = eq
+    var = pickVar eq
+    solutions = solve =<< extendVar var eq
+  in
+    if eqDone eq
+      then [currBinds]
+      else if not $ feasible eq
+        then []
+        else solutions
+
+eqDone :: Equation -> Bool
+eqDone (eqRows, _) = null eqRows
+
+pickVar :: Equation -> Variable
+pickVar (eqRows, _) = head $ fst $ head eqRows
+
+extendVar :: Variable -> Equation -> [Equation]
+extendVar var eq =
+  let
+    eqRows = fst eq
+    maxVal = maximum $ map snd eqRows
+  in
+    mapMaybe deduce $ mapMaybe (\v -> applyBind eq (var, v)) $ integerRange 0 maxVal
+
+toEq :: Machine -> Equation
+toEq (_, buttons, jolts) =
+  let
+    buttonToJolt = (\(i, bs) -> map ((,) i) bs) =<< zipWithIndex buttons
+    joltToButton = map (\xs -> (snd $ head xs, map fst xs)) $ groupOn snd buttonToJolt
+    rows = map swap $ zip jolts $ map snd $ sortOn fst joltToButton
+  in
+    fromJust $ deduce (rows, Map.empty)
+
+groupOn :: (Ord b) => (a -> b) -> [a] -> [[a]]
+groupOn f = groupBy (\a b -> (f a) == (f b)) . sortOn f
