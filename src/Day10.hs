@@ -5,7 +5,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.State (State, evalState, get, modify, put, runState)
 import Data.List (find)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, catMaybes)
+import System.IO.Unsafe (unsafePerformIO)
 
 process = part2
 example = False
@@ -123,20 +124,24 @@ bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
 --part2 = sum . map (length . configureJolts)
-part2 = sum . map (length . configureJolts)
+part2 = sum . map configureJolts . take 10
+-- 1 -> 0.56s
+-- 10 ->
 
-configureJolts :: Machine -> [Button]
+--configureJolts :: Machine -> [Button]
+configureJolts :: Machine -> Int
 configureJolts (_, buttons, joltList) =
   let
     targetJolts = Map.fromList $ zipWithIndex joltList
     initJolts = fmap (const 0) targetJolts
-    initSeq = (initJolts, [])
+    {-initSeq = (initJolts, [])-}
     {-bfsStart = bfs2 buttons targetJolts
     genLevels = evalState bfsStart ([initSeq], Set.empty)-}
-    astar = sequence $ repeat $ astarOnce buttons targetJolts
-    searchResult = evalState astar (Map.singleton 0.0 [initSeq], Set.empty)
+    {-astar = sequence $ repeat $ astarOnce buttons targetJolts
+    searchResult = evalState astar (Map.singleton 0.0 [initSeq], Set.empty)-}
   in
-    snd $ fromJust $ find (\s -> targetJolts == joltsFrom s) searchResult
+    --snd $ fromJust $ find (\s -> targetJolts == joltsFrom s) searchResult
+    fromJust $ evalState (dp buttons targetJolts) (Map.singleton initJolts (Just 0))
 
 type Jolts = Map Int Int
 type JoltSeq = (Jolts, [Button])
@@ -222,3 +227,34 @@ pqPick pq =
     case vs of
       x:y:ys -> (x, Map.insert key (y:ys) subPQ)
       x:[] -> (x, subPQ)
+
+dp :: [Button] -> Jolts -> State (Map Jolts (Maybe Int)) (Maybe Int)
+dp availableButtons targetJolts =
+  do
+    cache <- get
+    case Map.lookup targetJolts cache of
+      Just n -> return n
+      Nothing ->
+        -- Not in the cache, need to compute
+        do
+          let children = map (pushJoltRev targetJolts) availableButtons
+          let validChildren = filter (not . overshot2) children
+          childrenPresses <- traverse (dp availableButtons) validChildren
+          let feasibleChildrenPresses = catMaybes childrenPresses
+          let answer = case feasibleChildrenPresses of
+                        [] -> Nothing  -- We cannot reach the end from here
+                        _  -> Just $ 1 + minimum feasibleChildrenPresses
+          modify $ debug . Map.insert targetJolts answer
+          return answer
+
+debug :: Map k a -> Map k a
+debug m =
+  if (length m) `mod` 10000 == 0
+    then unsafePerformIO $ print (length m) >> return m
+    else m
+
+pushJoltRev :: Jolts -> Button -> Jolts
+pushJoltRev js bs = foldr (Map.adjust (\j -> j - 1)) js bs
+
+overshot2 :: Jolts -> Bool
+overshot2 js = any (\j -> j < 0) $ Map.elems js
