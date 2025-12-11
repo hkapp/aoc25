@@ -8,7 +8,7 @@ import Data.List (find)
 import Data.Maybe (fromJust)
 
 process = part2
-example = True
+example = False
 
 main =
   do
@@ -122,7 +122,8 @@ bfsLevel availableButtons =
 bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
-part2 = map (length . configureJolts)
+--part2 = sum . map (length . configureJolts)
+part2 = sum . map (length . configureJolts)
 
 configureJolts :: Machine -> [Button]
 configureJolts (_, buttons, joltList) =
@@ -130,9 +131,10 @@ configureJolts (_, buttons, joltList) =
     targetJolts = Map.fromList $ zipWithIndex joltList
     initJolts = fmap (const 0) targetJolts
     initSeq = (initJolts, [])
-    bfsStart = bfs2 buttons targetJolts
-    genLevels = evalState bfsStart ([initSeq], Set.empty)
-    searchResult = concat $ genLevels
+    {-bfsStart = bfs2 buttons targetJolts
+    genLevels = evalState bfsStart ([initSeq], Set.empty)-}
+    astar = sequence $ repeat $ astarOnce buttons targetJolts
+    searchResult = evalState astar (Map.singleton 0.0 [initSeq], Set.empty)
   in
     snd $ fromJust $ find (\s -> targetJolts == joltsFrom s) searchResult
 
@@ -174,3 +176,49 @@ bfsLevel2 availableButtons targetJolts =
 
 bfs2 :: [Button] -> Jolts -> State ([JoltSeq], Set Jolts) [[JoltSeq]]
 bfs2 availableButtons targetJolts = sequence $ repeat (bfsLevel2 availableButtons targetJolts)
+
+astarOnce :: [Button] -> Jolts -> State (PQueue, Set Jolts) JoltSeq
+astarOnce availableButtons targetJolts =
+  do
+    (pq, visited) <- get
+    let (seq, newPq) = pqPick pq
+    put (newPq, visited)
+    let currJolts = joltsFrom seq
+    if Set.member currJolts visited then
+      -- Already visited, skip
+      astarOnce availableButtons targetJolts
+    else
+      do
+        let newVisited = Set.insert currJolts visited
+        let next = map (extendJolt seq) availableButtons
+        let candidates = filter (not . overshot targetJolts . joltsFrom) next
+        let newNewPq = foldr pqInsert newPq candidates
+        put (newNewPq, newVisited)
+        return seq
+
+type PKey = JoltSeq
+type PQueue = Map Double [PKey]
+
+pqInsert :: PKey -> PQueue -> PQueue
+pqInsert jseq = multiMapInsert (astarCriteria jseq) jseq
+
+astarCriteria :: PKey -> Double
+astarCriteria (currJolts, pressedButtons) =
+  (fromIntegral $ sum $ Map.elems currJolts) / (fromIntegral $ length pressedButtons)
+
+multiMapInsert :: (Ord k) => k -> a -> Map k [a] -> Map k [a]
+multiMapInsert key newValue currMap =
+  let
+    appendIfExists (Just xs) = Just (newValue:xs)
+    appendIfExists Nothing = Just [newValue]
+  in
+    Map.alter appendIfExists key currMap
+
+pqPick :: PQueue -> (PKey, PQueue)
+pqPick pq =
+  let
+    ((key, vs), subPQ) = Map.deleteFindMax pq
+  in
+    case vs of
+      x:y:ys -> (x, Map.insert key (y:ys) subPQ)
+      x:[] -> (x, subPQ)
