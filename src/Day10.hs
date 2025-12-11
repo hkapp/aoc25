@@ -443,13 +443,13 @@ eqDone :: Equation -> Bool
 eqDone (eqRows, _) = null eqRows
 
 pickVar :: Equation -> Variable
-pickVar (eqRows, _) = head $ fst $ head eqRows
+pickVar (eqRows, _) = head $ fst $ head $ sortOn snd eqRows
 
 extendVar :: Variable -> Equation -> [Equation]
 extendVar var eq =
   let
     eqRows = fst eq
-    maxVal = maximum $ map snd eqRows
+    maxVal = minimum $ map snd eqRows
   in
     mapMaybe deduce $ mapMaybe (\v -> applyBind eq (var, v)) $ integerRange 0 maxVal
 
