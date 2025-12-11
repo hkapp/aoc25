@@ -4,8 +4,8 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.State (State, evalState, get, modify, put, runState)
-import Data.List (find)
-import Data.Maybe (fromJust, catMaybes)
+import Data.List (find, sortOn)
+import Data.Maybe (fromJust, catMaybes, isJust)
 import System.IO.Unsafe (unsafePerformIO)
 
 process = part2
@@ -124,24 +124,54 @@ bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
 --part2 = sum . map (length . configureJolts)
-part2 = sum . map configureJolts . take 10
--- 1 -> 0.56s
--- 10 ->
+part2 = map configureJolts . take 2
 
---configureJolts :: Machine -> [Button]
-configureJolts :: Machine -> Int
 configureJolts (_, buttons, joltList) =
   let
     targetJolts = Map.fromList $ zipWithIndex joltList
     initJolts = fmap (const 0) targetJolts
-    {-initSeq = (initJolts, [])-}
-    {-bfsStart = bfs2 buttons targetJolts
-    genLevels = evalState bfsStart ([initSeq], Set.empty)-}
-    {-astar = sequence $ repeat $ astarOnce buttons targetJolts
-    searchResult = evalState astar (Map.singleton 0.0 [initSeq], Set.empty)-}
+    sortedJolts = sortOn snd $ zipWithIndex joltList
+    sortedJoltIds = map fst sortedJolts
   in
-    --snd $ fromJust $ find (\s -> targetJolts == joltsFrom s) searchResult
-    fromJust $ evalState (dp buttons targetJolts) (Map.singleton initJolts (Just 0))
+    fromJust $ configureAllJolts buttons targetJolts sortedJoltIds
+
+configureAllJolts :: [Button] -> Jolts -> [Pos] -> Maybe Int
+
+configureAllJolts availableButtons targetJolts (j:g:js) =
+  let
+    (partialConfigs, nPresses) = configureOneJolt availableButtons targetJolts j
+    -- Work on the most joltage reduced option first
+    -- The first of those that returns a valid config has to be the best
+    sortedPartials = sortOn (sum . Map.elems) partialConfigs
+    fullConfigurations = map (\c -> configureAllJolts availableButtons c (g:js)) sortedPartials
+  in
+    fmap ((+) nPresses) =<< find isJust fullConfigurations
+
+configureAllJolts availableButtons targetJolts (j:[]) =
+  Map.lookup j targetJolts
+
+type Pos = Int
+
+configureOneJolt :: [Button] -> Jolts -> Pos -> ([Jolts], Int)
+configureOneJolt availableButtons targetJolts consideredJolt =
+  let
+    relevantButtons = filter (elem consideredJolt) availableButtons
+    nPresses = fromJust $ Map.lookup consideredJolt targetJolts
+    possibleButtonPresses = decompose relevantButtons nPresses
+    appliedConfigs = map (foldr (flip pushJoltRev) targetJolts) possibleButtonPresses
+    validConfigs = filter (not . overshot2) appliedConfigs
+  in
+    (validConfigs, nPresses)
+
+decompose :: [a] -> Int -> [[a]]
+decompose _ 0 = [[]]
+decompose [] _ = error "Invalid decompose"
+decompose (x:[]) n = [take n $ repeat x]
+decompose (x:xs) n =
+  (integerRange 0 n) >>= (\m -> map ((++) (take m $ repeat x)) $ decompose xs (n-m))
+
+integerRange :: Int -> Int -> [Int]
+integerRange a b = take (b - a + 1) $ integers a
 
 type Jolts = Map Int Int
 type JoltSeq = (Jolts, [Button])
