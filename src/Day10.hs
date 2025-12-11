@@ -131,41 +131,58 @@ configureJolts (_, buttons, joltList) =
     initJolts = fmap (const 0) targetJolts
     sortedJolts = sortOn snd $ zipWithIndex joltList
     sortedJoltIds = map fst sortedJolts
-    dpRun = configureAllJolts buttons targetJolts sortedJoltIds
+    dpRun = configureAllJolts buttons targetJolts
     dpRes = evalState dpRun Map.empty
   in
     fromJust dpRes
 
-configureAllJolts :: [Button] -> Jolts -> [Pos] -> State (Map (Jolts, [Pos]) (Maybe Int)) (Maybe Int)
+configureAllJolts :: [Button] -> Jolts -> State (Map Jolts (Maybe Int)) (Maybe Int)
 
-configureAllJolts availableButtons targetJolts (j:g:js) =
-  do
-    cache <- get
-    let workItems = (j:g:js)
-    let dpKey = debug2 (availableButtons, targetJolts, (j:g:js)) (targetJolts, workItems)
-    if Map.member dpKey cache then
-      return $ fromJust $ Map.lookup dpKey cache
-    else
-      -- Not yet computed, need to compute it now
-      do
-        let (partialConfigs, nPresses) = configureOneJolt availableButtons targetJolts j
-        -- The buttons that increase what we just configured can never be used again
-        let remainingButtons = filter (notElem j) availableButtons
-        -- Work on the most joltage reduced option first
-        -- The first of those that returns a valid config has to be the best
-        let sortedPartials = sortOn (sum . Map.elems) partialConfigs
-        fullConfigurations <- traverse (\c -> configureAllJolts remainingButtons c (g:js)) sortedPartials
-        let result = fmap ((+) nPresses) =<< find isJust fullConfigurations
-        modify $ debug . Map.insert dpKey result
-        return result
+configureAllJolts availableButtons targetJolts =
+  if done targetJolts then
+    -- We are done, trivial
+    return $ Just 0
+  else
+    do
+      cache <- get
+      let dpKey = debug2 (availableButtons, targetJolts) targetJolts
+      if Map.member dpKey cache then
+        -- DP cache hit: return
+        return $ fromJust $ Map.lookup dpKey cache
+      else
+        -- Not yet computed, need to compute it now
+        do
+          let (partialConfigs, nPresses) = configureEasiestJolt availableButtons targetJolts
+          -- Work on the most joltage reduced option first
+          -- The first of those that returns a valid config has to be the best
+          let sortedPartials = sortOn (sum . Map.elems) partialConfigs
+          fullConfigurations <- traverse (configureAllJolts availableButtons) sortedPartials
+          let result = fmap ((+) nPresses) =<< find isJust fullConfigurations
+          modify $ debug . Map.insert dpKey result
+          return result
 
-configureAllJolts availableButtons targetJolts (j:[]) =
-  return $ Map.lookup j targetJolts
+done :: Jolts -> Bool
+done = all ((==) 0) . Map.elems
 
 debug2 :: (Show a) => a -> b -> b
 debug2 disp ret = ret--unsafePerformIO $ print disp >> return ret
 
 type Pos = Int
+
+configureEasiestJolt :: [Button] -> Jolts -> ([Jolts], Int)
+configureEasiestJolt allButtons targetJolts =
+  let
+    -- Remove buttons that would ruin already configured jolts
+    touchesFinishedJolt b = any (\j -> 0 == (fromJust $ Map.lookup j targetJolts)) b
+    pressableButtons = filter (not . touchesFinishedJolt) allButtons
+
+    unfinishedJolts = filter (\(_, j) -> j /= 0) $ Map.toList targetJolts
+    easiestJolt = fst $ minimumBy snd unfinishedJolts
+  in
+    configureOneJolt pressableButtons targetJolts easiestJolt
+
+minimumBy :: (Ord b) => (a -> b) -> [a] -> a
+minimumBy f = head . sortOn f
 
 configureOneJolt :: [Button] -> Jolts -> Pos -> ([Jolts], Int)
 configureOneJolt availableButtons targetJolts consideredJolt =
