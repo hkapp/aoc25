@@ -123,8 +123,7 @@ bfsLevel availableButtons =
 bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
---part2 = sum . map (length . configureJolts)
-part2 = map configureJolts . take 2
+part2 = sum . map configureJolts
 
 configureJolts (_, buttons, joltList) =
   let
@@ -143,23 +142,28 @@ configureAllJolts availableButtons targetJolts (j:g:js) =
   do
     cache <- get
     let workItems = (j:g:js)
-    let dpKey = (targetJolts, workItems)
+    let dpKey = debug2 (availableButtons, targetJolts, (j:g:js)) (targetJolts, workItems)
     if Map.member dpKey cache then
       return $ fromJust $ Map.lookup dpKey cache
     else
       -- Not yet computed, need to compute it now
       do
         let (partialConfigs, nPresses) = configureOneJolt availableButtons targetJolts j
-          -- Work on the most joltage reduced option first
-          -- The first of those that returns a valid config has to be the best
+        -- The buttons that increase what we just configured can never be used again
+        let remainingButtons = filter (notElem j) availableButtons
+        -- Work on the most joltage reduced option first
+        -- The first of those that returns a valid config has to be the best
         let sortedPartials = sortOn (sum . Map.elems) partialConfigs
-        fullConfigurations <- traverse (\c -> configureAllJolts availableButtons c (g:js)) sortedPartials
+        fullConfigurations <- traverse (\c -> configureAllJolts remainingButtons c (g:js)) sortedPartials
         let result = fmap ((+) nPresses) =<< find isJust fullConfigurations
         modify $ debug . Map.insert dpKey result
         return result
 
 configureAllJolts availableButtons targetJolts (j:[]) =
   return $ Map.lookup j targetJolts
+
+debug2 :: (Show a) => a -> b -> b
+debug2 disp ret = ret--unsafePerformIO $ print disp >> return ret
 
 type Pos = Int
 
@@ -172,7 +176,10 @@ configureOneJolt availableButtons targetJolts consideredJolt =
     appliedConfigs = map (foldr (flip pushJoltRev) targetJolts) possibleButtonPresses
     validConfigs = filter (not . overshot2) appliedConfigs
   in
-    (validConfigs, nPresses)
+    if null relevantButtons && nPresses > 0
+      -- With no available buttons, we cannot configure anything
+      then ([], error "Cannot configure with no buttons")
+      else (validConfigs, nPresses)
 
 decompose :: [a] -> Int -> [[a]]
 decompose _ 0 = [[]]
