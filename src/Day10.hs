@@ -7,6 +7,7 @@ import Control.Monad.State (State, evalState, get, modify, put, runState)
 import Data.List (find, sortOn)
 import Data.Maybe (fromJust, catMaybes, isJust)
 import System.IO.Unsafe (unsafePerformIO)
+import Data.Ord (Down(Down))
 
 process = part2
 example = False
@@ -123,7 +124,7 @@ bfsLevel availableButtons =
 bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
-part2 = sum . map configureJolts
+part2 = map configureJolts . take 20
 
 configureJolts (_, buttons, joltList) =
   let
@@ -176,18 +177,33 @@ configureEasiestJolt allButtons targetJolts =
     touchesFinishedJolt b = any (\j -> 0 == (fromJust $ Map.lookup j targetJolts)) b
     pressableButtons = filter (not . touchesFinishedJolt) allButtons
 
-    unfinishedJolts = filter (\(_, j) -> j /= 0) $ Map.toList targetJolts
-    easiestJolt = fst $ minimumBy snd unfinishedJolts
+    easiestJolt = findEasiestJolt pressableButtons targetJolts
   in
     configureOneJolt pressableButtons targetJolts easiestJolt
+
+findEasiestJolt :: [Button] -> Jolts -> Int
+findEasiestJolt pressableButtons targetJolts =
+  let
+    unfinishedJolts = filter (\(_, j) -> j /= 0) $ Map.toList targetJolts
+    pow = (^)
+    fanout (id, jolt) = jolt `pow` (length $ onlyRelevant id pressableButtons)
+    easiestJolt = fst $ minimumBy fanout unfinishedJolts
+  in
+    easiestJolt
+
+onlyRelevant :: Pos -> [Button] -> [Button]
+onlyRelevant consideredJolt = filter (elem consideredJolt)
 
 minimumBy :: (Ord b) => (a -> b) -> [a] -> a
 minimumBy f = head . sortOn f
 
+maximumBy :: (Ord b) => (a -> b) -> [a] -> a
+maximumBy f = head . sortOn (Down . f)
+
 configureOneJolt :: [Button] -> Jolts -> Pos -> ([Jolts], Int)
 configureOneJolt availableButtons targetJolts consideredJolt =
   let
-    relevantButtons = filter (elem consideredJolt) availableButtons
+    relevantButtons = onlyRelevant consideredJolt availableButtons
     nPresses = fromJust $ Map.lookup consideredJolt targetJolts
     possibleButtonPresses = decompose relevantButtons nPresses
     appliedConfigs = map (foldr (flip pushJoltRev) targetJolts) possibleButtonPresses
