@@ -137,11 +137,17 @@ configureJolts (_, buttons, joltList) =
     sortedJoltIds = map fst sortedJolts
     dpRun = configureAllJolts buttons targetJolts
     dpRes = evalState dpRun Map.empty-}
-    sortedButtons = sortOn (Down . length) buttons
-    dfs = sequence $ repeat dfsExpand
+    --sortedButtons = sortOn (Down . length) buttons
+    --dfs = sequence $ repeat dfsExpand
+    startingEq = toEq (undefined, buttons, joltList)
   in
     --snd $ fromJust $ find (done . fst) $ evalState dfs [(targetJolts, 0, sortedButtons)]
-    minimum $ map (sum . Map.elems) $ solve $ toEq (undefined, buttons, joltList)
+    --head $ map (sum . Map.elems) $ solve $ toEq (undefined, buttons, joltList)
+    score $ fromJust $ evalState (solveBetter startingEq) Nothing
+    -- 20 and under: 400ms
+    -- 21: 9.8s
+    -- 22: 12s
+    -- 23: 13s
 
 configureAllJolts :: [Button] -> Jolts -> State (Map Jolts (Maybe Int)) (Maybe Int)
 
@@ -464,3 +470,68 @@ toEq (_, buttons, jolts) =
 
 groupOn :: (Ord b) => (a -> b) -> [a] -> [[a]]
 groupOn f = groupBy (\a b -> (f a) == (f b)) . sortOn f
+
+solveBetter :: Equation -> State (Maybe Binds) (Maybe Binds)
+solveBetter eq =
+  let
+    (currRows, currBinds) = eq
+    var = pickVar eq
+
+    recSolve =
+      do
+        solutions <- traverse solveBetter $ extendVar var eq
+        -- Note: traverse is already taking care of filtering out the best ones
+        -- Also note: this is not guaranteed to be the same as the current best in `get`,
+        -- as the latter may be coming from a different branch of the search tree
+        let bestSolution = safeLast $ mapMaybe id solutions
+        return bestSolution
+
+    stateSolve =
+      do
+        currBest <- get
+        if canBeBetter currBest eq
+          then recSolve
+          else return Nothing
+  in
+    if eqDone eq
+      then competitor currBinds
+      else if not $ feasible eq
+        then return Nothing
+        else stateSolve
+
+safeLast :: [a] -> Maybe a
+safeLast [] = Nothing
+safeLast xs = Just $ last xs
+
+competitor :: Binds -> State (Maybe Binds) (Maybe Binds)
+competitor newValue =
+  let
+    b1 `isBetterThan` b2 = (score b1) < (score b2)
+
+    becomeBest =
+      do
+        put $ Just newValue
+        return $ Just newValue
+  in
+    do
+      currBest <- get
+      case currBest of
+        Just oldValue ->
+          if newValue `isBetterThan` oldValue then
+            becomeBest
+          else
+            -- New is not better, ignore
+            return Nothing
+        Nothing ->
+          -- First solution found
+          becomeBest
+
+score :: Binds -> Int
+score = sum . Map.elems
+
+canBeBetter :: (Maybe Binds) -> Equation -> Bool
+canBeBetter Nothing _ = True
+canBeBetter (Just bestBinds) eq = (leastPossibleScore eq) < (score bestBinds)
+
+leastPossibleScore :: Equation -> Int
+leastPossibleScore (eqRows, currBinds) = (score currBinds) + (maximum $ map snd eqRows)
