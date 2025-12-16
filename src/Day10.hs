@@ -127,7 +127,7 @@ bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
 --part2 = sum . map configureJolts
-part2 = map configureJolts . take 24
+part2 = map configureJolts . take 23
 
 configureJolts (_, buttons, joltList) =
   let
@@ -457,7 +457,7 @@ extendVar var eq =
     eqRows = fst eq
     maxVal = minimum $ map snd eqRows
   in
-    mapMaybe deduce $ mapMaybe (\v -> applyBind eq (var, v)) $ integerRange 0 maxVal
+    mapMaybe deduce $ mapMaybe (\v -> applyBind eq (var, v)) $ reverse $ integerRange 0 maxVal
 
 toEq :: Machine -> Equation
 toEq (_, buttons, jolts) =
@@ -491,13 +491,16 @@ solveBetter eq =
         currBest <- get
         if canBeBetter currBest eq
           then recSolve
-          else return Nothing
+          else return $ debug4 ("< ") Nothing
   in
     if eqDone eq
       then competitor currBinds
       else if not $ feasible eq
         then return Nothing
         else stateSolve
+
+debug4 :: String -> a -> a
+debug4 text value = unsafePerformIO (putStr text >> return value)
 
 safeLast :: [a] -> Maybe a
 safeLast [] = Nothing
@@ -510,7 +513,7 @@ competitor newValue =
 
     becomeBest =
       do
-        put $ Just newValue
+        put $ debug3 ("Found new best: " ++ (show newValue)) $ Just newValue
         return $ Just newValue
   in
     do
@@ -525,6 +528,9 @@ competitor newValue =
         Nothing ->
           -- First solution found
           becomeBest
+
+debug3 :: String -> a -> a
+debug3 text value = unsafePerformIO (putStrLn text >> return value)
 
 score :: Binds -> Int
 score = sum . Map.elems
