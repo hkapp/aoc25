@@ -450,15 +450,21 @@ eqDone :: Equation -> Bool
 eqDone (eqRows, _) = null eqRows
 
 pickVar :: Equation -> Variable
-pickVar (eqRows, _) = head $ fst $ head $ sortOn snd eqRows
+pickVar (eqRows, _) = head $ fst $ head $ sortOn fanout2 eqRows
+
+fanout2 :: EqRow -> Int
+fanout2 (lhs, rhs) = rhs ^ ((length lhs) - 1)
 
 extendVar :: Variable -> Equation -> [Equation]
 extendVar var eq =
   let
     eqRows = fst eq
-    maxVal = minimum $ map snd eqRows
+    maxVal = minimum $ map snd $ rowsContaining var eqRows
   in
     mapMaybe deduce $ mapMaybe (\v -> applyBind eq (var, v)) $ reverse $ integerRange 0 maxVal
+
+rowsContaining :: Variable -> [EqRow] -> [EqRow]
+rowsContaining var = filter (elem var . fst)
 
 toEq :: Machine -> Equation
 toEq (_, buttons, jolts) =
