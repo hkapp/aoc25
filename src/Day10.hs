@@ -407,6 +407,7 @@ isNonNeg = not . isNeg
 
 deduceRow :: EqRow -> Maybe (Variable, Value)
 deduceRow (x:[], y) = Just (x, y)
+deduceRow (x:xs, 0) = debug4 "0 " $ Just (x, 0)
 deduceRow _ = Nothing
 
 applyBind :: Equation -> (Variable, Value) -> Maybe Equation
