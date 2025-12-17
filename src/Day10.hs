@@ -1,11 +1,11 @@
-import Data.Bifunctor (second)
+import Data.Bifunctor (second, first)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.State (State, evalState, get, modify, put, runState)
-import Data.List (find, sortOn, partition, groupBy)
-import Data.Maybe (fromJust, catMaybes, isJust, mapMaybe)
+import Data.List (find, sortOn, partition, groupBy, sort, group)
+import Data.Maybe (fromJust, catMaybes, isJust, mapMaybe, fromMaybe, isNothing)
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Ord (Down(Down))
 import Control.Exception (assert)
@@ -126,28 +126,25 @@ bfsLevel availableButtons =
 bfs :: [Button] -> State ([PushSeq], Set Lights) [[PushSeq]]
 bfs availableButtons = sequence $ repeat (bfsLevel availableButtons)
 
---part2 = sum . map configureJolts
-part2 = map configureJolts . take 23
+part2 = sum . map configureJolts
+--part2 = map configureJolts . take 128
+-- 23 -> [40,114,104,38,30,25,34,73,222,148,197,86,59,65,37,146,58,239,53,39,114,88,157,341]
 
 configureJolts (_, buttons, joltList) =
   let
     targetJolts = Map.fromList $ zipWithIndex joltList
-    {-initJolts = fmap (const 0) targetJolts
-    sortedJolts = sortOn snd $ zipWithIndex joltList
-    sortedJoltIds = map fst sortedJolts
-    dpRun = configureAllJolts buttons targetJolts
-    dpRes = evalState dpRun Map.empty-}
-    --sortedButtons = sortOn (Down . length) buttons
-    --dfs = sequence $ repeat dfsExpand
     startingEq = toEq (undefined, buttons, joltList)
   in
-    --snd $ fromJust $ find (done . fst) $ evalState dfs [(targetJolts, 0, sortedButtons)]
-    --head $ map (sum . Map.elems) $ solve $ toEq (undefined, buttons, joltList)
     score $ fromJust $ evalState (solveBetter startingEq) Nothing
+    --leastPossibleScore startingEq
     -- 20 and under: 400ms
     -- 21: 9.8s
     -- 22: 12s
     -- 23: 13s
+    -- 24: 24s
+    -- 32: 28s
+    -- 64: 29s
+    -- 128: 1m38s
 
 configureAllJolts :: [Button] -> Jolts -> State (Map Jolts (Maybe Int)) (Maybe Int)
 
@@ -388,16 +385,48 @@ deduce eq =
   let
     (eqRows, binds) = eq
     deducedBinding = safeHead $ mapMaybe deduceRow eqRows
+    newRows = deduceRowSubsets eqRows
   in
     if not $ feasible eq
       then Nothing
       else
         case deducedBinding of
           Just bnd -> deduce =<< applyBind eq bnd
-          Nothing -> Just eq
+          Nothing ->
+            if newRows /= eqRows
+              then deduce (newRows, binds)
+              else Just eq
+
+deduceRowSubsets :: [EqRow] -> [EqRow]
+deduceRowSubsets currRows =
+  let
+    setForm = map (first Set.fromList) currRows
+    reduceThisOne (bigVars, bigValue) (smallVars, smallValue) = (bigVars `Set.difference` smallVars, bigValue - smallValue)
+    reduceOneSet s@(xs, _) = fromMaybe s $ fmap (reduceThisOne s) $ find (\(ys, _) -> ys `Set.isProperSubsetOf` xs) setForm
+    reducedSets = map reduceOneSet setForm
+  in
+    map (first Set.toList) reducedSets
+
+test _ =
+  let
+    --startingRows = [([2,8,10],32),([8,10,11],26),([9,10],14),([8,10],20),([2,10,11],29),([2,9,10],26),([2,8],23)]
+    startingRows = [([6,10],29),([0,4],24),([0,10],23),([0,6],30),([0,10],25)]
+    startingEq = (startingRows, Map.empty)
+  in
+    --(deduce startingEq, deduceRowSubsets startingRows)
+    feasible startingEq
 
 feasible :: Equation -> Bool
-feasible (eqRows, _) = all isNonNeg $ map snd eqRows
+feasible (eqRows, _) =
+  let
+    nothingNegative = all isNonNeg $ map snd eqRows
+
+    setForm = map (first Set.fromList) eqRows
+    multiMap = foldr (uncurry multiMapInsert) Map.empty setForm
+    containsDifferences xs = (length $ Set.fromList xs) > 1
+    noUnresolvableDuplicates = isNothing $ find containsDifferences $ Map.elems multiMap
+  in
+    nothingNegative && noUnresolvableDuplicates
 
 isNeg :: Int -> Bool
 isNeg n = n < 0
@@ -547,4 +576,71 @@ canBeBetter Nothing _ = True
 canBeBetter (Just bestBinds) eq = (leastPossibleScore eq) < (score bestBinds)
 
 leastPossibleScore :: Equation -> Int
-leastPossibleScore (eqRows, currBinds) = (score currBinds) + (maximum $ map snd eqRows)
+leastPossibleScore (eqRows, currBinds) =
+  let
+    setForm = map (first Set.fromList) eqRows
+
+    solveSimpler :: [(Set Variable, Value)] -> Int
+    solveSimpler [] = 0
+    solveSimpler ((vars, value) : rem) =
+      let
+        notPicked = solveSimpler rem
+        remIfPicked = filter (Set.disjoint vars . fst) rem
+        ifPicked = value + solveSimpler remIfPicked
+      in
+        max notPicked ifPicked
+  in
+    (score currBinds) + (solveSimpler setForm)
+  {-let
+    sortedButtons = sortOn Down $ map length $ group $ sort $ fst =<< eqRows
+
+    solveSimpler _ [] = 0
+    solveSimpler (b:bs) rhs =
+      let
+        (picked, rem) = splitAt b $ sortOn Down rhs
+        presses = last picked
+        newPicked = filter ((/=) 0) $ map (\v -> v - presses) picked
+      in
+        case rem of
+          [] -> maximum picked
+          _  -> presses + solveSimpler bs (newPicked ++ rem)
+    solveSimpler [] rhs = error $ "Reached unscorable with eq=" ++ (show eqRows) ++ ", buttons=" ++ (show sortedButtons) ++ ", remRhs=" ++ (show rhs)
+  in
+    (score currBinds) + (solveSimpler sortedButtons (map snd eqRows))-}
+
+-- This is wrong:
+-- "least possible" : [40,107,68,44,30,25,34,58,202,139,188,76,50,47,37,146,54,231,53,38,113,83,150]
+-- actual: [40,118,104,38,30,25,34,73,222,148,197,86,59,65,37,146,58,239,53,39,114,88,164]
+-- -> #4 is "below" the "least possible"
+-- Solution for these entries:
+-- [fromList [(0,0),(1,18),(2,11),(3,11)],fromList [(0,13),(1,4),(2,22),(3,0),(4,4),(5,13),(6,18),(7,5),(8,11),(9,28)],fromList [(0,13),(1,1),(2,13),(3,7),(4,11),(5,0),(6,17),(7,19),(8,7),(9,1),(10,11),(11,4)],fromList [(0,6),(1,17),(2,15),(3,0)]]
+-- #4 = fromList [(0,6),(1,17),(2,15),(3,0)]
+-- Input for #4 is:
+-- [.##..#] (0,1,2,3,5) (0,2,3,4) (0,1,3,4) (0,1,3,4,5) {38,21,23,38,32,6}
+-- With our idea we have:
+-- buttons = [5, 5, 4, 4]
+-- steps =
+--   [38,38,32,23,21,6] -> [17,17,11,2,0,6] (21)
+--   [17,17,11,6,2] -> [15, 15, 9, 4, 0] (+2 -> 23)
+--   [15, 15, 9, 4] -> [11, 11, 5, 0] (+4 -> 27)
+--   [11, 11, 5] -> [6, 6, 0] (+5 -> 32)
+--   -> here we are not using the full effiency of that button
+--      we only decrease 3 buttons instead of 4
+--   -> we could simply reattribute the counter values and get:
+--   [9, 9, 9] -> [0, 0, 0] (+9 -> 38)
+--     which is the right value
+--     but is this just chance?
+--     when should we apply this if so?
+--     what does this even mean?
+--  once we've removed enough variables from the start isn't it enough to then take the max?
+-- New least possible scores:
+-- [40,107,68,38,30,25,34,58,202,139,188,76,50,47,37,146,54,231,46,38,113,83,150]
+-- These are all legit
+-- What is the difference with just taking the max?
+-- Some of them are really different
+-- 24th is 307 least possible
+--  {285,105,96,252,301,277,106,272,246,249}
+-- Hopefully there is a bigger difference when some buttons have already been pressed
+
+debug5 :: (Show a) => a -> a
+debug5 x = unsafePerformIO (print x >> return x)
