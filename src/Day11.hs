@@ -1,16 +1,12 @@
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 
-process = part1
-example = False
+process = part2
+inputFile = "./data/11.input.txt"
 
 main =
   do
-    textInput <-
-      if example then
-        readFile "./data/11.example.txt"
-      else
-        readFile "./data/11.input.txt"
+    textInput <- readFile inputFile
     let res = process $ parse textInput
     print $ res
 
@@ -32,4 +28,6 @@ part1 g =
 
 search :: Graph -> Node -> [[Node]]
 search g "out" = [[]]
-search g start = (g ! start) >>= search g
+search g start = map ((:) start) $ (g ! start) >>= search g
+
+part2 g = length $ filter (elem "dac") $ filter (elem "fft") $ search g "svr"
