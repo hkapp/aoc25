@@ -1,6 +1,7 @@
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
+import Control.Monad.State (State, evalState, modify, get)
 
 process = part2
 inputFile = "./data/11.input.txt"
@@ -24,10 +25,27 @@ parseLine (x:xs) = (takeWhile ((/=) ':') x, xs)
 part1 g = countPaths g "out" "you"
 
 countPaths :: Graph -> Node -> Node -> Int
-countPaths g end start =
+countPaths g end start = evalState (memoized g end start) Map.empty
+
+memoized :: Graph -> Node -> Node -> State (Map Node Int) Int
+memoized g end start =
   if end == start
-    then 1
-    else sum $ map (countPaths g end) (debugLookup g start)
+    then return 1
+    else
+      do
+        cache <- get
+        case Map.lookup start cache of
+          Just answer -> return answer
+          Nothing ->
+            -- need to compute
+            do
+              modify $ Map.insert start (error $ "Loop detected on " ++ (show start))
+              computedValue <- fmap sum $ traverse (memoized g end) $ children g start
+              modify $ Map.insert start computedValue
+              return computedValue
+
+children :: Graph -> Node -> [Node]
+children = debugLookup
 
 debugLookup :: (Show k, Ord k) => Map k a -> k -> a
 debugLookup m k = fromMaybe (error ("Missing key " ++ (show k))) $ Map.lookup k m
