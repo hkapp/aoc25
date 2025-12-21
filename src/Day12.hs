@@ -5,7 +5,8 @@ import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe)
 import Control.Monad (join)
-import Data.List (find)
+import Data.List (find, sortOn, groupBy)
+import System.IO.Unsafe (unsafePerformIO)
 
 process = part1
 inputFile = "./data/12.example.txt"
@@ -93,7 +94,7 @@ emptyCanvas area = (area, Set.empty)
 
 fit :: [Shape] -> Canvas -> Maybe Canvas
 fit [] currCanvas = Just currCanvas
-fit (currShape : remShapes) currCanvas =
+fit shapes@(currShape : remShapes) currCanvas =
   let
     allVariants =
       do
@@ -102,7 +103,66 @@ fit (currShape : remShapes) currCanvas =
         let translatedAndRotated = translate rotatedShape corner
         return translatedAndRotated
   in
-    join $ find isJust $ map (fit remShapes) $ mapMaybe (place currCanvas) allVariants
+    if canStillFit shapes currCanvas
+      then join $ find isJust $ map (fit remShapes) $ mapMaybe (place currCanvas) allVariants
+      else debugNoLn "- " Nothing
+
+debugNoLn :: String -> a -> a
+debugNoLn s x = unsafePerformIO (putStr s >> return x)
+
+canStillFit :: [Shape] -> Canvas -> Bool
+canStillFit shapes canvas =
+  let
+    emptySpaces = map length $ findClusters $ negative canvas
+    smallestShape = minimum $ map length shapes
+    validClusterSizes = filter (\n -> n >= smallestShape) emptySpaces
+    totalShapeSize = sum $ map length shapes
+  in
+    totalShapeSize <= sum validClusterSizes
+
+negative :: Canvas -> Shape
+negative canvas = Set.fromList $ filter (\p -> Set.notMember p $ canvasDrawn canvas) $ enumArea $ canvasArea canvas
+
+findClusters :: Shape -> [Set Point]
+findClusters shape =
+  let
+    initAssignment = Map.fromList $ map (\x -> (x, x)) $ Set.toList shape
+
+    reduceOne p =
+      let
+        neighborsInShape = filter (\n -> Set.member n shape) $ directNeighbors p
+        candidates = p : neighborsInShape
+      in
+        minimum candidates
+
+    reduce asg = fmap reduceOne asg
+
+    rec currAsg =
+      let
+        newAsg = reduce currAsg
+      in
+        if newAsg == currAsg
+          then newAsg
+          else rec newAsg
+
+    postProcess finalAsg = map (Set.fromList . map fst) $ groupOn snd $ Map.toList finalAsg
+  in
+    postProcess $ rec initAssignment
+
+debugMap :: (Show b) => (a -> b) -> a -> a
+debugMap f x = unsafePerformIO (print (f x) >> return x)
+
+groupOn :: (Ord b) => (a -> b) -> [a] -> [[a]]
+groupOn f = groupBy (\a b -> (f a) == (f b)) . sortOn f
+
+directNeighbors :: Point -> [Point]
+directNeighbors (x, y) =
+  [
+    (x, y+1),
+    (x, y-1),
+    (x+1, y),
+    (x-1, y)
+  ]
 
 allRotations :: Shape -> [Shape]
 allRotations initShape = scanr (const rotate) initShape $ take 3 $ repeat ()
