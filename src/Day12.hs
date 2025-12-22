@@ -99,7 +99,7 @@ fit shapes@(currShape : remShapes) currCanvas =
     allVariants =
       do
         rotatedShape <- uniqueRotations currShape
-        corner <- enumArea (canvasArea currCanvas)
+        corner <- canvasFreePoints currCanvas
         let translatedAndRotated = translate rotatedShape corner
         return translatedAndRotated
   in
@@ -125,8 +125,11 @@ uniqueRotations = distinct . allRotations
 
 distinct = nub
 
+canvasFreePoints :: Canvas -> [Point]
+canvasFreePoints (area, alreadyDrawn) = filter (\p -> Set.notMember p alreadyDrawn) $ enumArea area
+
 negative :: Canvas -> Shape
-negative canvas = Set.fromList $ filter (\p -> Set.notMember p $ canvasDrawn canvas) $ enumArea $ canvasArea canvas
+negative = Set.fromList . canvasFreePoints
 
 findClusters :: Shape -> [Set Point]
 findClusters shape =
