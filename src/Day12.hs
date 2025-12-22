@@ -5,7 +5,7 @@ import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe)
 import Control.Monad (join)
-import Data.List (find, sortOn, groupBy)
+import Data.List (find, sortOn, groupBy, nub)
 import System.IO.Unsafe (unsafePerformIO)
 
 process = part1
@@ -98,7 +98,7 @@ fit shapes@(currShape : remShapes) currCanvas =
   let
     allVariants =
       do
-        rotatedShape <- allRotations currShape
+        rotatedShape <- uniqueRotations currShape
         corner <- enumArea (canvasArea currCanvas)
         let translatedAndRotated = translate rotatedShape corner
         return translatedAndRotated
@@ -119,6 +119,11 @@ canStillFit shapes canvas =
     totalShapeSize = sum $ map length shapes
   in
     totalShapeSize <= sum validClusterSizes
+
+uniqueRotations :: Shape -> [Shape]
+uniqueRotations = distinct . allRotations
+
+distinct = nub
 
 negative :: Canvas -> Shape
 negative canvas = Set.fromList $ filter (\p -> Set.notMember p $ canvasDrawn canvas) $ enumArea $ canvasArea canvas
