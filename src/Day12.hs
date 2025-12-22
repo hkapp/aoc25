@@ -79,7 +79,21 @@ splitFirst p xs =
 mapBoth :: (Bifunctor f) => (a -> b) -> f a a -> f b b
 mapBoth f = second f . first f
 
-part1 (catalog, requests) = map (solvable catalog) $ take 1 requests
+--part1 (catalog, requests) = map (solvable catalog) $ take 1 requests
+part1 (catalog, requests) = length $ filter positive $ map (leeway catalog) requests
+
+positive :: Int -> Bool
+positive n = n > 0
+
+leeway catalog (area, shapeCounts) =
+  let
+    availSurface = surface area
+    requiredSpace = sum $ map (\(id, count) -> count * (length $ catalog ! id)) $ Map.toList shapeCounts
+  in
+    availSurface - requiredSpace
+
+surface :: Area -> Int
+surface (x, y) = x * y
 
 --solvable :: Catalog -> Request -> Bool
 solvable catalog (area, shapeCounts) =
@@ -117,7 +131,7 @@ fit2 shapes@(currShape : remShapes) hist currCanvas =
       do
         newCanvas <- place currCanvas modifiedShape
         let newHist = Map.insert currShape modifiedShape hist
-        let betterCanvas = fillSmallHolesAround modifiedShape newCanvas (length remShapes)
+        let betterCanvas = newCanvas--fillSmallHolesAround modifiedShape newCanvas (length remShapes)
         return $ (newHist, betterCanvas)
 
     recFit =
