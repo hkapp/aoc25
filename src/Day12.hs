@@ -5,7 +5,7 @@ import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe, listToMaybe)
 import Control.Monad (join)
-import Data.List (find, sortOn, groupBy, nub)
+import Data.List (find, sortOn, groupBy, nub, sort)
 import System.IO.Unsafe (unsafePerformIO)
 
 process = part1
@@ -93,8 +93,13 @@ emptyCanvas :: Area -> Canvas
 emptyCanvas area = (area, Set.empty)
 
 fit :: [Shape] -> Canvas -> Maybe Canvas
-fit [] currCanvas = Just currCanvas
-fit shapes@(currShape : remShapes) currCanvas =
+fit shapes = fit2 shapes Map.empty
+
+type History = Map Shape Shape
+
+fit2 :: [Shape] -> History -> Canvas -> Maybe Canvas
+fit2 [] _ currCanvas = Just currCanvas
+fit2 shapes@(currShape : remShapes) hist currCanvas =
   let
     allVariants =
       do
@@ -102,12 +107,26 @@ fit shapes@(currShape : remShapes) currCanvas =
         corner <- canvasFreePoints currCanvas
         let translatedAndRotated = translate rotatedShape corner
         return translatedAndRotated
+
+    placeAndRecord modifiedShape =
+      let
+        newHist = Map.insert currShape modifiedShape hist
+      in
+        fmap ((,) newHist) $ place currCanvas modifiedShape
   in
     (debugNoLn ((show $ length shapes) ++ " ") safeHead)
-    $ mapMaybe (fit remShapes)
-    $ filter (canStillFit remShapes)
-    $ map (removeUnusableHoles remShapes)
-    $ mapMaybe (place currCanvas) allVariants
+    $ mapMaybe (uncurry $ fit2 remShapes)
+    $ filter (canStillFit remShapes . snd)
+    $ map (second $ removeUnusableHoles remShapes)
+    $ mapMaybe placeAndRecord
+    $ dropWhile (not . trulyNew hist currShape)
+    $ sort allVariants
+
+trulyNew :: History -> Shape -> Shape -> Bool
+trulyNew hist baseShape modifiedShape =
+  case Map.lookup baseShape hist of
+    Just prevRecord -> modifiedShape > prevRecord
+    Nothing -> True
 
 safeHead :: [a] -> Maybe a
 safeHead = listToMaybe
