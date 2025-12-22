@@ -3,7 +3,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (isJust, mapMaybe, listToMaybe)
 import Control.Monad (join)
 import Data.List (find, sortOn, groupBy, nub)
 import System.IO.Unsafe (unsafePerformIO)
@@ -103,22 +103,38 @@ fit shapes@(currShape : remShapes) currCanvas =
         let translatedAndRotated = translate rotatedShape corner
         return translatedAndRotated
   in
-    if canStillFit shapes currCanvas
-      then join $ find isJust $ map (fit remShapes) $ mapMaybe (place currCanvas) allVariants
-      else debugNoLn "- " Nothing
+    (debugNoLn ((show $ length shapes) ++ " ") safeHead)
+    $ mapMaybe (fit remShapes)
+    $ filter (canStillFit remShapes)
+    $ map (removeUnusableHoles remShapes)
+    $ mapMaybe (place currCanvas) allVariants
+
+safeHead :: [a] -> Maybe a
+safeHead = listToMaybe
 
 debugNoLn :: String -> a -> a
 debugNoLn s x = unsafePerformIO (putStr s >> return x)
 
+removeUnusableHoles :: [Shape] -> Canvas -> Canvas
+removeUnusableHoles [] canvas = canvas
+removeUnusableHoles shapes canvas =
+  let
+    emptySpaces = findClusters $ negative canvas
+    smallestShape = minimum $ map length shapes
+    validClusters = filter (\c -> length c >= smallestShape) emptySpaces
+    usableFreePoints = Set.unions validClusters
+    area = canvasArea canvas
+  in
+    (area, negative $ (area, usableFreePoints))
+
 canStillFit :: [Shape] -> Canvas -> Bool
+canStillFit [] _ = True
 canStillFit shapes canvas =
   let
-    emptySpaces = map length $ findClusters $ negative canvas
-    smallestShape = minimum $ map length shapes
-    validClusterSizes = filter (\n -> n >= smallestShape) emptySpaces
+    totalEmptySpace = length $ canvasFreePoints canvas
     totalShapeSize = sum $ map length shapes
   in
-    totalShapeSize <= sum validClusterSizes
+    totalEmptySpace >= totalShapeSize
 
 uniqueRotations :: Shape -> [Shape]
 uniqueRotations = distinct . allRotations
