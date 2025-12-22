@@ -77,7 +77,7 @@ splitFirst p xs =
 mapBoth :: (Bifunctor f) => (a -> b) -> f a a -> f b b
 mapBoth f = second f . first f
 
-part1 (catalog, requests) = map (solvable catalog) $ take 2 requests
+part1 (catalog, requests) = map (solvable catalog) $ take 3 requests
 
 --solvable :: Catalog -> Request -> Bool
 solvable catalog (area, shapeCounts) =
@@ -169,16 +169,18 @@ negative = Set.fromList . canvasFreePoints
 findClusters :: Shape -> [Set Point]
 findClusters shape =
   let
-    initAssignment = Map.fromList $ map (\x -> (x, x)) $ Set.toList shape
-
-    reduceOne p =
+    initNext p =
       let
         neighborsInShape = filter (\n -> Set.member n shape) $ directNeighbors p
         candidates = p : neighborsInShape
       in
         minimum candidates
 
-    reduce asg = fmap reduceOne asg
+    initAssignment = Map.fromList $ map (\x -> (x, initNext x)) $ Set.toList shape
+
+    reduceOne currAsg p = currAsg ! p
+
+    reduce asg = fmap (reduceOne asg) asg
 
     rec currAsg =
       let
