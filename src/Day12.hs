@@ -3,15 +3,15 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Maybe (isJust, mapMaybe, listToMaybe)
+import Data.Maybe (isJust, mapMaybe, listToMaybe, fromMaybe)
 import Control.Monad (join)
 import Control.Monad.State (State, get, modify, evalState)
-import Data.List (find, sortOn, groupBy, nub, sort)
+import Data.List (find, sortOn, groupBy, nub, sort, foldl')
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Ord (Down(Down))
 
 process = part1
-inputFile = "./data/12.example.txt"
+inputFile = "./data/12.input.txt"
 
 main =
   do
@@ -79,7 +79,7 @@ splitFirst p xs =
 mapBoth :: (Bifunctor f) => (a -> b) -> f a a -> f b b
 mapBoth f = second f . first f
 
-part1 (catalog, requests) = map (solvable catalog) $ take 3 requests
+part1 (catalog, requests) = map (solvable catalog) $ take 1 requests
 
 --solvable :: Catalog -> Request -> Bool
 solvable catalog (area, shapeCounts) =
@@ -114,17 +114,17 @@ fit2 shapes@(currShape : remShapes) hist currCanvas =
         return translatedAndRotated
 
     placeAndRecord modifiedShape =
-      let
-        newHist = Map.insert currShape modifiedShape hist
-      in
-        fmap ((,) newHist) $ place currCanvas modifiedShape
+      do
+        newCanvas <- place currCanvas modifiedShape
+        let newHist = Map.insert currShape modifiedShape hist
+        let betterCanvas = fillSmallHolesAround modifiedShape newCanvas (length remShapes)
+        return $ (newHist, betterCanvas)
 
     recFit =
       fmap (debugNoLn ((show $ length shapes) ++ " ") safeHead)
       $ fmap (mapMaybe id)
       $ traverse (uncurry $ fit2 remShapes)
       $ filter (canStillFit remShapes . snd)
-      $ map (second $ removeUnusableHoles remShapes)
       $ mapMaybe placeAndRecord
       $ dropWhile (not . trulyNew hist currShape)
       $ sort allVariants
@@ -139,6 +139,48 @@ fit2 shapes@(currShape : remShapes) hist currCanvas =
           do
             modify $ Set.insert dpKey
             recFit
+
+fillSmallHolesAround :: Shape -> Canvas -> Int -> Canvas
+fillSmallHolesAround aroundThis canvas minSize =
+  let
+    pointsAround :: [Point]
+    pointsAround = distinct $ (neighborsInHole canvas) =<< Set.toList aroundThis
+
+    findSmallHoleStarting :: Point -> Maybe [Point]
+    findSmallHoleStarting p =
+      let
+        bfsExpand :: Point -> State (Set Point) [Point]
+        bfsExpand p =
+          do
+            visited <- get
+            if Set.member p visited
+              then return []
+              else
+                do
+                  modify $ Set.insert p
+                  recRes <- fmap join $ traverse bfsExpand $ neighborsInHole canvas p
+                  return (p : recRes)
+
+        bfsRes = evalState (bfsExpand p) Set.empty
+      in
+        if longerThan minSize bfsRes
+          then Nothing
+          else Just bfsRes
+
+    holify p s =
+      if Set.member p s
+        then s
+        else Set.union s $ Set.fromList $ fromMaybe [] $ findSmallHoleStarting p
+
+    pointsToFill = foldr holify Set.empty pointsAround
+  in
+    paint canvas pointsToFill
+
+longerThan :: Int -> [a] -> Bool
+longerThan n xs = (length $ take (n+1) xs) > n
+
+neighborsInHole :: Canvas -> Point -> [Point]
+neighborsInHole canvas p = filter ((flip Set.notMember) (canvasDrawn canvas)) $ filter (pointWithin (canvasArea canvas)) $ directNeighbors p
 
 trulyNew :: History -> Shape -> Shape -> Bool
 trulyNew hist baseShape modifiedShape =
@@ -176,6 +218,7 @@ canStillFit shapes canvas =
 uniqueRotations :: Shape -> [Shape]
 uniqueRotations = distinct . allRotations
 
+distinct :: (Eq a) => [a] -> [a]
 distinct = nub
 
 canvasFreePoints :: Canvas -> [Point]
@@ -194,23 +237,26 @@ findClusters shape =
       in
         minimum candidates
 
-    initAssignment = Map.fromList $ map (\x -> (x, initNext x)) $ Set.toList shape
+    localGraph = Map.fromList $ map (\x -> (x, initNext x)) $ Set.toList shape
 
-    reduceOne currAsg p = currAsg ! p
+    trackGroup asg p =
+      if Map.member p asg
+        -- Already known, nothing to do
+        then asg
+        else
+          let
+            q = localGraph ! p
+            newAsg = trackGroup asg q
+          in
+            if p == q
+              then Map.insert p p asg
+              else Map.insert p (newAsg ! q) newAsg
 
-    reduce asg = fmap (reduceOne asg) asg
-
-    rec currAsg =
-      let
-        newAsg = reduce currAsg
-      in
-        if newAsg == currAsg
-          then newAsg
-          else rec newAsg
+    buildMap = foldl' (trackGroup) Map.empty $ Set.toList shape
 
     postProcess finalAsg = map (Set.fromList . map fst) $ groupOn snd $ Map.toList finalAsg
   in
-    postProcess $ rec initAssignment
+    postProcess $ buildMap
 
 debugMap :: (Show b) => (a -> b) -> a -> a
 debugMap f x = unsafePerformIO (print (f x) >> return x)
@@ -293,12 +339,12 @@ integerRange :: Int -> Int -> [Int]
 integerRange a b = [a..b]
 
 place :: Canvas -> Shape -> Maybe Canvas
-place (area, alreadySet) shape =
+place canvas@(area, alreadySet) shape =
   if not $ within area shape
     then Nothing
     else if overlaps alreadySet shape
       then Nothing
-      else Just (area, paint alreadySet shape)
+      else Just $ paint canvas shape
 
 within :: Area -> Shape -> Bool
 within area shape = all (pointWithin area) shape
@@ -309,5 +355,5 @@ pointWithin (ax, ay) (px, py) = (px >= 0) && (px < ax) && (py >= 0) && (py < ay)
 overlaps :: Set Point -> Set Point -> Bool
 overlaps a b = not $ Set.disjoint a b
 
-paint :: Set Point -> Set Point -> Set Point
-paint = Set.union
+paint :: Canvas -> Set Point -> Canvas
+paint (area, drawn) shape = (area, Set.union drawn shape)
