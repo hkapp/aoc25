@@ -7,6 +7,7 @@ import Data.Maybe (isJust, mapMaybe, listToMaybe)
 import Control.Monad (join)
 import Data.List (find, sortOn, groupBy, nub, sort)
 import System.IO.Unsafe (unsafePerformIO)
+import Data.Ord (Down(Down))
 
 process = part1
 inputFile = "./data/12.example.txt"
@@ -83,7 +84,10 @@ part1 (catalog, requests) = map (solvable catalog) $ take 3 requests
 solvable catalog (area, shapeCounts) =
   let
     canvas = emptyCanvas area
-    toPick = (=<<) (\(id, count) -> take count $ repeat $ catalog ! id) $ Map.toList shapeCounts
+    -- We want to first pick the shapes that are repeated many times,
+    -- as we can reduce the search space for those
+    sortedShapeCounts = sortOn (Down . snd) $ Map.toList shapeCounts
+    toPick = (=<<) (\(id, count) -> take count $ repeat $ catalog ! id) sortedShapeCounts
   in
     fit toPick canvas
 
