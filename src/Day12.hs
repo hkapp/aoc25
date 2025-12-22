@@ -5,6 +5,7 @@ import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe, listToMaybe)
 import Control.Monad (join)
+import Control.Monad.State (State, get, modify, evalState)
 import Data.List (find, sortOn, groupBy, nub, sort)
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Ord (Down(Down))
@@ -97,12 +98,12 @@ emptyCanvas :: Area -> Canvas
 emptyCanvas area = (area, Set.empty)
 
 fit :: [Shape] -> Canvas -> Maybe Canvas
-fit shapes = fit2 shapes Map.empty
+fit shapes canvas = evalState (fit2 shapes Map.empty canvas) Set.empty
 
 type History = Map Shape Shape
 
-fit2 :: [Shape] -> History -> Canvas -> Maybe Canvas
-fit2 [] _ currCanvas = Just currCanvas
+fit2 :: [Shape] -> History -> Canvas -> State (Set ([Shape], Canvas)) (Maybe Canvas)
+fit2 [] _ currCanvas = return $ Just currCanvas
 fit2 shapes@(currShape : remShapes) hist currCanvas =
   let
     allVariants =
@@ -117,14 +118,27 @@ fit2 shapes@(currShape : remShapes) hist currCanvas =
         newHist = Map.insert currShape modifiedShape hist
       in
         fmap ((,) newHist) $ place currCanvas modifiedShape
+
+    recFit =
+      fmap (debugNoLn ((show $ length shapes) ++ " ") safeHead)
+      $ fmap (mapMaybe id)
+      $ traverse (uncurry $ fit2 remShapes)
+      $ filter (canStillFit remShapes . snd)
+      $ map (second $ removeUnusableHoles remShapes)
+      $ mapMaybe placeAndRecord
+      $ dropWhile (not . trulyNew hist currShape)
+      $ sort allVariants
+
+    dpKey = (shapes, currCanvas)
   in
-    (debugNoLn ((show $ length shapes) ++ " ") safeHead)
-    $ mapMaybe (uncurry $ fit2 remShapes)
-    $ filter (canStillFit remShapes . snd)
-    $ map (second $ removeUnusableHoles remShapes)
-    $ mapMaybe placeAndRecord
-    $ dropWhile (not . trulyNew hist currShape)
-    $ sort allVariants
+    do
+      visited <- get
+      if Set.member dpKey visited
+        then debugNoLn "% " $ return Nothing
+        else
+          do
+            modify $ Set.insert dpKey
+            recFit
 
 trulyNew :: History -> Shape -> Shape -> Bool
 trulyNew hist baseShape modifiedShape =
